@@ -1,0 +1,50 @@
+export const INSTRUMENT_ITEMS = [
+  {
+    id: "inst-1",
+    title: "Electric Guitar",
+    tag: "6-STRING // VINTAGE",
+    img: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80",
+    url: "#",
+    height: 520,
+  },
+  {
+    id: "inst-2",
+    title: "Grand Piano",
+    tag: "88-KEYS // ACOUSTIC",
+    img: "https://images.unsplash.com/photo-1520523839898-507125cd53c1?auto=format&fit=crop&w=800&q=80",
+    url: "#",
+    height: 380,
+  },
+  {
+    id: "inst-3",
+    title: "Acoustic Dreadnought",
+    tag: "CUSTOM WOOD // DADGAD",
+    img: "https://images.unsplash.com/photo-1525201548942-d8732f6617a0?auto=format&fit=crop&w=800&q=80",
+    url: "#",
+    height: 580,
+  },
+  {
+    id: "inst-4",
+    title: "Analog Synthesizer",
+    tag: "POLYPHONIC // OSC",
+    img: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&w=800&q=80",
+    url: "#",
+    height: 420,
+  },
+  {
+    id: "inst-5",
+    title: "Studio Piano Keys",
+    tag: "HAMMER ACTION // IVORY",
+    img: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80",
+    url: "#",
+    height: 460,
+  },
+  {
+    id: "inst-6",
+    title: "Bass Guitar Fretboard",
+    tag: "4-STRING // LOW FREQ",
+    img: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?auto=format&fit=crop&w=800&q=80",
+    url: "#",
+    height: 500,
+  }
+];

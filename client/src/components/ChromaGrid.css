@@ -1,0 +1,169 @@
+.chroma-grid {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), minmax(260px, 1fr));
+  grid-auto-rows: auto;
+  justify-content: center;
+  gap: 1.25rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem 0;
+  box-sizing: border-box;
+
+  --x: 50%;
+  --y: 50%;
+  --r: 280px;
+}
+
+@media (max-width: 1200px) {
+  .chroma-grid {
+    grid-template-columns: repeat(2, minmax(280px, 360px));
+    gap: 1rem;
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 680px) {
+  .chroma-grid {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+    gap: 1.25rem;
+  }
+}
+
+.chroma-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--card-gradient);
+  backdrop-filter: blur(12px);
+
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+  --spotlight-color: rgba(225, 0, 255, 0.25);
+}
+
+.chroma-card:hover {
+  border-color: var(--card-border);
+  transform: translateY(-4px);
+  box-shadow: 0 16px 36px -8px rgba(89, 7, 100, 0.35);
+}
+
+.chroma-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mouse-x) var(--mouse-y), var(--spotlight-color), transparent 70%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  z-index: 2;
+}
+
+.chroma-card:hover::before {
+  opacity: 1;
+}
+
+.chroma-img-wrapper {
+  position: relative;
+  z-index: 1;
+  height: 220px;
+  padding: 10px;
+  box-sizing: border-box;
+  background: transparent;
+  transition: background 0.3s ease;
+}
+
+.chroma-img-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 14px;
+  display: block;
+  filter: contrast(1.05) brightness(0.95);
+  transition: transform 0.4s ease;
+}
+
+.chroma-card:hover .chroma-img-wrapper img {
+  transform: scale(1.03);
+}
+
+.chroma-info {
+  position: relative;
+  z-index: 1;
+  padding: 1rem 1.25rem 1.25rem;
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+.chroma-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  backdrop-filter: grayscale(0.85) brightness(0.85);
+  -webkit-backdrop-filter: grayscale(0.85) brightness(0.85);
+  background: rgba(0, 0, 0, 0.001);
+
+  mask-image: radial-gradient(
+    circle var(--r) at var(--x) var(--y),
+    transparent 0%,
+    transparent 20%,
+    rgba(0, 0, 0, 0.15) 35%,
+    rgba(0, 0, 0, 0.35) 50%,
+    rgba(0, 0, 0, 0.55) 70%,
+    rgba(0, 0, 0, 0.8) 85%,
+    white 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    circle var(--r) at var(--x) var(--y),
+    transparent 0%,
+    transparent 20%,
+    rgba(0, 0, 0, 0.15) 35%,
+    rgba(0, 0, 0, 0.35) 50%,
+    rgba(0, 0, 0, 0.55) 70%,
+    rgba(0, 0, 0, 0.8) 85%,
+    white 100%
+  );
+}
+
+.chroma-fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  backdrop-filter: grayscale(0.85) brightness(0.85);
+  -webkit-backdrop-filter: grayscale(0.85) brightness(0.85);
+  background: rgba(0, 0, 0, 0.001);
+
+  mask-image: radial-gradient(
+    circle var(--r) at var(--x) var(--y),
+    white 0%,
+    white 20%,
+    rgba(255, 255, 255, 0.85) 35%,
+    rgba(255, 255, 255, 0.65) 50%,
+    rgba(255, 255, 255, 0.45) 70%,
+    rgba(255, 255, 255, 0.2) 85%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    circle var(--r) at var(--x) var(--y),
+    white 0%,
+    white 20%,
+    rgba(255, 255, 255, 0.85) 35%,
+    rgba(255, 255, 255, 0.65) 50%,
+    rgba(255, 255, 255, 0.45) 70%,
+    rgba(255, 255, 255, 0.2) 85%,
+    transparent 100%
+  );
+
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
