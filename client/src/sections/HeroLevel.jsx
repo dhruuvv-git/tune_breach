@@ -1,9 +1,10 @@
 import React from 'react';
 import SoftAurora from '../components/SoftAurora';
 import AppleFade from '../components/AppleFade';
-import { ChevronDown, SlidersHorizontal } from 'lucide-react';
+import AuroraText from '../components/ui/AuroraText';
+import { ChevronDown, ArrowRight } from 'lucide-react';
 
-export default function HeroLevel({ onScrollNext, onOpenPlayground }) {
+export default function HeroLevel({ onScrollNext, onGetStarted }) {
   return (
     <section 
       id="level-1" 
@@ -45,10 +46,16 @@ export default function HeroLevel({ onScrollNext, onOpenPlayground }) {
           </span>
         </div>
 
-        {/* Minimalist Reveal of TuneBreach */}
+        {/* Minimalist Reveal of TuneBreach: 'Tune' is solid white, 'Breach' has stationary purple aurora flow */}
         <div className="relative mb-6">
           <h1 className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-extrabold tracking-[-0.04em] text-white drop-shadow-[0_10px_35px_rgba(0,0,0,0.8)] font-sans">
-            Tune<span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-[#f3c8ff] to-[#a855f7]">Breach</span>
+            <span>Tune</span>
+            <AuroraText
+              colors={['#ffffff', '#f3c8ff', '#e100ff', '#a855f7', '#590764', '#e100ff']}
+              speed={1.2}
+            >
+              Breach
+            </AuroraText>
           </h1>
 
           {/* Minimalist soundwave aesthetic indicator beneath title */}
@@ -72,19 +79,19 @@ export default function HeroLevel({ onScrollNext, onOpenPlayground }) {
           The next-generation acoustic platform redefining <span className="text-white font-medium">musical clarity</span> through sub-cent pitch detection, deep harmonic intelligence, and real-time chord verification.
         </p>
 
-        {/* Action Buttons */}
+        {/* Action Buttons: "Get Started" */}
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <button
-            onClick={() => onOpenPlayground('tuner')}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-white text-black font-semibold text-sm tracking-wide hover:bg-zinc-200 transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] active:scale-95 flex items-center justify-center gap-2"
+            onClick={onGetStarted}
+            className="w-full sm:w-auto px-9 py-3.5 rounded-full bg-white text-black font-semibold text-sm tracking-wide hover:bg-zinc-200 transition-all shadow-[0_0_35px_rgba(255,255,255,0.3)] hover:shadow-[0_0_45px_rgba(225,0,255,0.5)] active:scale-95 flex items-center justify-center gap-2 group cursor-pointer"
           >
-            <SlidersHorizontal className="w-4 h-4 text-purple-700" />
-            <span>Open Interactive Suite</span>
+            <span>Get Started</span>
+            <ArrowRight className="w-4 h-4 text-purple-700 group-hover:translate-x-1 transition-transform" />
           </button>
 
           <button
             onClick={onScrollNext}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-zinc-200 font-mono text-xs tracking-wider border border-white/15 backdrop-blur-md transition-all active:scale-95 flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-8 py-3.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] text-zinc-200 font-mono text-xs tracking-wider border border-white/15 backdrop-blur-md transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>Explore The Platform</span>
             <span>↓</span>
@@ -93,7 +100,7 @@ export default function HeroLevel({ onScrollNext, onOpenPlayground }) {
 
       </AppleFade>
 
-      {/* Clean Scroll indicator - only showing "Scroll" as requested */}
+      {/* Clean Scroll indicator */}
       <button 
         onClick={onScrollNext}
         aria-label="Scroll to Level 2"

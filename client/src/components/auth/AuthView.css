@@ -1,0 +1,30 @@
+@keyframes conveyorUp {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes conveyorDown {
+  0% {
+    transform: translateY(-50%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-conveyor-up {
+  animation: conveyorUp 22s linear infinite;
+}
+
+.animate-conveyor-down {
+  animation: conveyorDown 22s linear infinite;
+}
+
+.conveyor-wrapper:hover .animate-conveyor-up,
+.conveyor-wrapper:hover .animate-conveyor-down {
+  animation-play-state: paused;
+}

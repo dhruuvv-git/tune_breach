@@ -24,10 +24,11 @@ export default function VerticalLevelBar({ activeLevel, onSelectLevel }) {
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="fixed left-0 top-1/2 -translate-y-1/2 z-40 flex items-center transition-all duration-500 ease-out select-none"
+      className="fixed left-0 top-1/2 -translate-y-1/2 z-50 flex items-center transition-all duration-300 ease-out select-none pointer-events-auto"
+      style={{ transform: 'translateY(-50%)' }}
     >
-      {/* Collapsed Minimalist Vertical Indicator Bars (Always visible on left edge) */}
-      <div className="pl-4 pr-3 py-6 flex flex-col items-center gap-4 cursor-pointer">
+      {/* Collapsed Minimalist Vertical Indicator Bars (Permanently visible on left edge across all slides) */}
+      <div className="pl-4 sm:pl-6 pr-3 py-6 flex flex-col items-center gap-3.5 cursor-pointer bg-black/20 backdrop-blur-[2px] rounded-r-2xl border-r border-white/5 shadow-lg">
         {[0, 1, 2].map((idx) => {
           const isActive = activeIndex === idx;
           return (
@@ -35,13 +36,13 @@ export default function VerticalLevelBar({ activeLevel, onSelectLevel }) {
               key={idx}
               onClick={() => onSelectLevel(`level-${idx + 1}`)}
               aria-label={`Jump to level ${idx + 1}`}
-              className="group focus:outline-none py-1 flex items-center justify-center"
+              className="group focus:outline-none py-1 flex items-center justify-center cursor-pointer"
             >
               <div
-                className={`w-1 rounded-full transition-all duration-500 ${
+                className={`w-1.5 rounded-full transition-all duration-500 ${
                   isActive
-                    ? 'h-12 bg-gradient-to-b from-[#e100ff] to-[#590764] shadow-[0_0_15px_#e100ff]'
-                    : 'h-5 bg-white/20 group-hover:h-8 group-hover:bg-white/50'
+                    ? 'h-14 bg-gradient-to-b from-[#e100ff] via-[#a855f7] to-[#590764] shadow-[0_0_16px_#e100ff]'
+                    : 'h-6 bg-white/30 group-hover:h-9 group-hover:bg-white/70'
                 }`}
               />
             </button>
@@ -57,7 +58,7 @@ export default function VerticalLevelBar({ activeLevel, onSelectLevel }) {
             : 'w-0 opacity-0 -translate-x-4 pointer-events-none'
         }`}
       >
-        <div className="w-[280px] sm:w-[320px] h-[240px] rounded-2xl bg-black/80 backdrop-blur-2xl border border-white/10 shadow-[0_15px_40px_rgba(0,0,0,0.8)] relative p-2 flex flex-col justify-center">
+        <div className="w-[280px] sm:w-[320px] h-[240px] rounded-2xl bg-black/85 backdrop-blur-2xl border border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.9)] relative p-2 flex flex-col justify-center">
           
           <div className="px-4 pt-2 pb-1 border-b border-white/[0.08] flex items-center justify-between text-[10px] font-mono text-zinc-400">
             <span className="text-aurora-neon font-semibold">LEVEL NAVIGATOR</span>
