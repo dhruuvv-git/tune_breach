@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ChordDiagram, { CHORD_DIAGRAMS } from '../ChordDiagram';
 import { 
   Flame, 
   TrendingUp, 
@@ -35,6 +36,13 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
   const [chords, setChords] = useState([]);
   const [selectedRoot, setSelectedRoot] = useState('All');
   const [selectedChord, setSelectedChord] = useState(null);
+  // Instrument & diagram states
+  const [selectedInstrument, setSelectedInstrument] = useState('acoustic');
+  const [carouselOpen, setCarouselOpen] = useState(false);
+  const [carouselStartIndex, setCarouselStartIndex] = useState(0);
+  const longPressTimerRef = useRef(null);
+  const longPressTriggeredRef = useRef(false);
+  const chordSwipeStartRef = useRef(null);
 
   // --- Metronome State ---
   const [bpm, setBpm] = useState(120);
@@ -79,6 +87,181 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
     osc.stop(ctx.currentTime + 1.8);
   };
 
+  // ── Acoustic Guitar synth ──────────────────────────────────────────────
+  const playAcousticNote = (ctx, freq, startTime, masterGain) => {
+    // A plucked fundamental with a short pick transient and a warm body resonance.
+    const body = ctx.createBiquadFilter();
+    body.type = 'lowpass';
+    body.frequency.setValueAtTime(2600, startTime);
+    body.Q.value = 0.65;
+    const bodyResonance = ctx.createBiquadFilter();
+    bodyResonance.type = 'peaking';
+    bodyResonance.frequency.value = 190;
+    bodyResonance.gain.value = 2.5;
+    bodyResonance.Q.value = 0.8;
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 3200;
+    lowpass.Q.value = 0.5;
+    const string = ctx.createOscillator();
+    const stringGain = ctx.createGain();
+    string.type = 'triangle';
+    string.frequency.setValueAtTime(freq, startTime);
+    stringGain.gain.setValueAtTime(0.0001, startTime);
+    stringGain.gain.linearRampToValueAtTime(0.52, startTime + 0.004);
+    stringGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.9);
+    string.connect(stringGain);
+    stringGain.connect(body);
+    string.start(startTime);
+    string.stop(startTime + 2);
+
+    const upperPartial = ctx.createOscillator();
+    const partialGain = ctx.createGain();
+    upperPartial.type = 'sine';
+    upperPartial.frequency.setValueAtTime(freq * 2.01, startTime);
+    partialGain.gain.setValueAtTime(0.0001, startTime);
+    partialGain.gain.linearRampToValueAtTime(0.12, startTime + 0.003);
+    partialGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.45);
+    upperPartial.connect(partialGain);
+    partialGain.connect(body);
+    upperPartial.start(startTime);
+    upperPartial.stop(startTime + 0.5);
+
+    const pickBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.018), ctx.sampleRate);
+    const pickData = pickBuffer.getChannelData(0);
+    for (let i = 0; i < pickData.length; i++) pickData[i] = (Math.random() * 2 - 1) * (1 - i / pickData.length);
+    const pick = ctx.createBufferSource();
+    const pickFilter = ctx.createBiquadFilter();
+    const pickGain = ctx.createGain();
+    pick.buffer = pickBuffer;
+    pickFilter.type = 'bandpass';
+    pickFilter.frequency.value = Math.min(3200, Math.max(700, freq * 7));
+    pickFilter.Q.value = 0.8;
+    pickGain.gain.setValueAtTime(0.035, startTime);
+    pickGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.018);
+    pick.connect(pickFilter);
+    pickFilter.connect(pickGain);
+    pickGain.connect(body);
+    pick.start(startTime);
+
+    body.connect(bodyResonance);
+    bodyResonance.connect(lowpass);
+    lowpass.connect(masterGain);
+  };
+
+  // ── Electric Guitar (clean) synth ─────────────────────────────────────
+  const playElectricNote = (ctx, freq, startTime, masterGain) => {
+    const oscillator = ctx.createOscillator();
+    const inputGain = ctx.createGain();
+    const overdrive = ctx.createWaveShaper();
+    const cabinet = ctx.createBiquadFilter();
+    const presence = ctx.createBiquadFilter();
+    const compressor = ctx.createDynamicsCompressor();
+    const curve = new Float32Array(2048);
+    const drive = 34;
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i * 2) / (curve.length - 1) - 1;
+      curve[i] = (1 + drive) * x / (1 + drive * Math.abs(x));
+    }
+    overdrive.curve = curve;
+    overdrive.oversample = '4x';
+    cabinet.type = 'lowpass';
+    cabinet.frequency.value = 4200;
+    presence.type = 'peaking';
+    presence.frequency.value = 1800;
+    presence.gain.value = 3;
+    presence.Q.value = 0.9;
+    compressor.threshold.value = -20;
+    compressor.knee.value = 8;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.004;
+    compressor.release.value = 0.18;
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(freq, startTime);
+    inputGain.gain.setValueAtTime(0.0001, startTime);
+    inputGain.gain.linearRampToValueAtTime(0.16, startTime + 0.008);
+    inputGain.gain.setValueAtTime(0.12, startTime + 0.08);
+    inputGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 2.2);
+    oscillator.connect(inputGain);
+    inputGain.connect(overdrive);
+    overdrive.connect(cabinet);
+    cabinet.connect(presence);
+    presence.connect(compressor);
+    compressor.connect(masterGain);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + 2.25);
+  };
+
+  // ── Piano synth ───────────────────────────────────────────────────────
+  const playPianoNote = (ctx, freq, startTime, masterGain) => {
+    // Sine fundamental + harmonics shaped like hammer-struck strings
+    const partials = [1, 2, 3, 4, 5];
+    const amps    = [0.6, 0.18, 0.09, 0.04, 0.02];
+    const decays  = [3.5, 2.8, 2.2, 1.6, 1.2];
+
+    partials.forEach((p, i) => {
+      const osc = ctx.createOscillator();
+      const g   = ctx.createGain();
+      osc.type = i === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(freq * p, startTime);
+      g.gain.setValueAtTime(0.0001, startTime);
+      g.gain.linearRampToValueAtTime(amps[i], startTime + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, startTime + decays[i]);
+      osc.connect(g);
+      g.connect(masterGain);
+      osc.start(startTime);
+      osc.stop(startTime + decays[i] + 0.1);
+    });
+  };
+
+  const noteFreqMap = {
+    'C': 261.63, 'C#': 277.18, 'Db': 277.18, 'D': 293.66, 'D#': 311.13, 'Eb': 311.13,
+    'E': 329.63, 'F': 349.23, 'F#': 369.99, 'Gb': 369.99, 'G': 392.00,
+    'G#': 415.30, 'Ab': 415.30, 'A': 440.00, 'A#': 466.16, 'Bb': 466.16, 'B': 493.88
+  };
+
+  const playChordNotes = useCallback((chordOrNotes, instrument = selectedInstrument) => {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const guitarStrings = [82.4069, 110, 146.832, 195.998, 246.942, 329.628];
+    const notes = Array.isArray(chordOrNotes) ? chordOrNotes : chordOrNotes.notes;
+    const stringFrequencies = !Array.isArray(chordOrNotes) && chordOrNotes.frets
+      ? chordOrNotes.frets.flatMap((fret, index) => {
+          const fretNumber = Number(fret);
+          return Number.isFinite(fretNumber) && fretNumber >= 0
+            ? [guitarStrings[index] * (2 ** (fretNumber / 12))]
+            : [];
+        })
+      : null;
+    const frequencies = instrument === 'piano' || !stringFrequencies
+      ? notes.map(note => noteFreqMap[note] || 440)
+      : stringFrequencies;
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(instrument === 'piano' ? 0.24 : 0.18, ctx.currentTime);
+    masterGain.connect(ctx.destination);
+
+    frequencies.forEach((freq, i) => {
+      const startTime = ctx.currentTime + i * 0.032; // slight strum stagger
+
+      if (instrument === 'acoustic') {
+        playAcousticNote(ctx, freq, startTime, masterGain);
+      } else if (instrument === 'electric') {
+        playElectricNote(ctx, freq, startTime, masterGain);
+      } else {
+        playPianoNote(ctx, freq, startTime, masterGain);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedInstrument]);
+
+  const clearChordLongPress = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+
+  useEffect(() => () => clearChordLongPress(), []);
+
   const playClick = (isAccent) => {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -94,28 +277,6 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
     osc.stop(ctx.currentTime + 0.05);
   };
 
-  const playChordNotes = (notes) => {
-    const noteFreqMap = {
-      'C': 261.63, 'C#': 277.18, 'D': 293.66, 'Eb': 311.13, 'E': 329.63,
-      'F': 349.23, 'F#': 369.99, 'G': 392.00, 'G#': 415.30, 'A': 440.00,
-      'Bb': 466.16, 'B': 493.88
-    };
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    notes.forEach((note, i) => {
-      const freq = noteFreqMap[note] || 440;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime + i * 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.6);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + i * 0.04);
-      osc.stop(ctx.currentTime + 1.8);
-    });
-  };
 
   // Fetch data
   useEffect(() => {
@@ -721,6 +882,21 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
               </div>
             </div>
 
+            <div className="flex items-center gap-3 text-xs text-zinc-400">
+              <label htmlFor="chord-instrument" className="font-mono">SOUND</label>
+              <select
+                id="chord-instrument"
+                value={selectedInstrument}
+                onChange={event => setSelectedInstrument(event.target.value)}
+                className="rounded-lg border border-white/10 bg-[#120d18] px-3 py-2 text-white outline-none focus:border-aurora-neon"
+              >
+                <option value="acoustic">Acoustic guitar</option>
+                <option value="electric">Clean electric guitar</option>
+                <option value="piano">Piano</option>
+              </select>
+              <span>Tap to play · hold a chord to view its diagram</span>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {chords
                 .filter(c => selectedRoot === 'All' || c.root === selectedRoot)
@@ -729,9 +905,26 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
                   return (
                     <div
                       key={chord.id}
+                      onPointerDown={() => {
+                        longPressTriggeredRef.current = false;
+                        clearChordLongPress();
+                        longPressTimerRef.current = setTimeout(() => {
+                          const visibleChords = chords.filter(c => selectedRoot === 'All' || c.root === selectedRoot);
+                          const diagramIndex = visibleChords.findIndex(c => c.id === chord.id);
+                          if (diagramIndex >= 0 && CHORD_DIAGRAMS[chord.id]) {
+                            longPressTriggeredRef.current = true;
+                            setSelectedChord(chord);
+                            setCarouselStartIndex(diagramIndex);
+                            setCarouselOpen(true);
+                          }
+                        }, 2200);
+                      }}
+                      onPointerUp={clearChordLongPress}
+                      onPointerLeave={clearChordLongPress}
+                      onPointerCancel={clearChordLongPress}
                       onClick={() => {
                         setSelectedChord(chord);
-                        playChordNotes(chord.notes);
+                        playChordNotes(chord);
                       }}
                       className={`p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                         isSelected
@@ -767,7 +960,7 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              playChordNotes(chord.notes);
+                              playChordNotes(chord);
                             }}
                             className="px-2.5 py-1 rounded-md bg-white/10 hover:bg-aurora-neon hover:text-black text-xs font-mono transition-colors flex items-center gap-1"
                           >
@@ -780,6 +973,63 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
                   );
                 })}
             </div>
+
+            {carouselOpen && selectedChord && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setCarouselOpen(false)}>
+                <section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={`${selectedChord.name} chord diagram`}
+                  className="w-full max-w-md rounded-2xl border border-white/10 bg-[#100b16] p-5 shadow-2xl"
+                  onClick={event => event.stopPropagation()}
+                  onTouchStart={event => { chordSwipeStartRef.current = event.changedTouches[0].clientX; }}
+                  onTouchEnd={event => {
+                    const startX = chordSwipeStartRef.current;
+                    const deltaX = startX == null ? 0 : event.changedTouches[0].clientX - startX;
+                    if (Math.abs(deltaX) > 45) {
+                      const list = chords.filter(c => selectedRoot === 'All' || c.root === selectedRoot);
+                      const next = (carouselStartIndex + (deltaX < 0 ? 1 : -1) + list.length) % list.length;
+                      setCarouselStartIndex(next);
+                      setSelectedChord(list[next]);
+                    }
+                    chordSwipeStartRef.current = null;
+                  }}
+                  onKeyDown={event => {
+                    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                    const list = chords.filter(c => selectedRoot === 'All' || c.root === selectedRoot);
+                    const next = (carouselStartIndex + (event.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length;
+                    setCarouselStartIndex(next);
+                    setSelectedChord(list[next]);
+                  }}
+                  tabIndex={0}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="text-lg font-bold text-white">{selectedChord.name}</h4>
+                    <button type="button" onClick={() => setCarouselOpen(false)} className="rounded-lg px-3 py-1 text-zinc-400 hover:bg-white/10 hover:text-white" aria-label="Close chord diagram">✕</button>
+                  </div>
+                  {CHORD_DIAGRAMS[selectedChord.id] ? (
+                    <ChordDiagram chordId={selectedChord.id} size={220} />
+                  ) : (
+                    <p className="py-12 text-center text-sm text-zinc-400">No diagram is available for this chord yet.</p>
+                  )}
+                  <div className="mt-4 flex items-center justify-between">
+                    <button type="button" onClick={() => {
+                      const list = chords.filter(c => selectedRoot === 'All' || c.root === selectedRoot);
+                      const next = (carouselStartIndex - 1 + list.length) % list.length;
+                      setCarouselStartIndex(next);
+                      setSelectedChord(list[next]);
+                    }} className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Previous</button>
+                    <span className="text-xs font-mono text-zinc-500">{carouselStartIndex + 1} / {chords.filter(c => selectedRoot === 'All' || c.root === selectedRoot).length}</span>
+                    <button type="button" onClick={() => {
+                      const list = chords.filter(c => selectedRoot === 'All' || c.root === selectedRoot);
+                      const next = (carouselStartIndex + 1) % list.length;
+                      setCarouselStartIndex(next);
+                      setSelectedChord(list[next]);
+                    }} className="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Next</button>
+                  </div>
+                </section>
+              </div>
+            )}
           </div>
         )}
 

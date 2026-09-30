@@ -110,6 +110,54 @@ export const CHORDS = [
     fingers: [3, 2, '-', '-', '-', 1],
     formula: '1 - 3 - 5 - b7',
     mood: 'Bluesy, expectant, tension that yearns to resolve'
+  },
+  {
+    id: 'd-major',
+    name: 'D Major',
+    root: 'D',
+    type: 'Major Triad',
+    difficulty: 'Beginner',
+    notes: ['D', 'F#', 'A'],
+    frets: ['x', 'x', 0, 2, 3, 2],
+    fingers: ['-', '-', '-', 1, 3, 2],
+    formula: '1 - 3 - 5',
+    mood: 'Clear, bright, and open'
+  },
+  {
+    id: 'e-minor',
+    name: 'E Minor',
+    root: 'E',
+    type: 'Minor Triad',
+    difficulty: 'Beginner',
+    notes: ['E', 'G', 'B'],
+    frets: [0, 2, 2, 0, 0, 0],
+    fingers: ['-', 2, 3, '-', '-', '-'],
+    formula: '1 - b3 - 5',
+    mood: 'Open, mellow, and reflective'
+  },
+  {
+    id: 'a-major',
+    name: 'A Major',
+    root: 'A',
+    type: 'Major Triad',
+    difficulty: 'Beginner',
+    notes: ['A', 'C#', 'E'],
+    frets: ['x', 0, 2, 2, 2, 0],
+    fingers: ['-', '-', 1, 2, 3, '-'],
+    formula: '1 - 3 - 5',
+    mood: 'Warm, steady, and familiar'
+  },
+  {
+    id: 'd-7',
+    name: 'D Dominant 7',
+    root: 'D',
+    type: 'Dominant 7th',
+    difficulty: 'Beginner',
+    notes: ['D', 'F#', 'A', 'C'],
+    frets: ['x', 'x', 0, 2, 1, 2],
+    fingers: ['-', '-', '-', 2, 1, 3],
+    formula: '1 - 3 - 5 - b7',
+    mood: 'Light, bluesy, and ready to resolve'
   }
 ];
 
