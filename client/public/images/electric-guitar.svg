@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
-  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#31133e"/><stop offset="1" stop-color="#08070d"/></linearGradient><linearGradient id="wood" x2="1" y2="1"><stop stop-color="#ffbd72"/><stop offset="1" stop-color="#a54335"/></linearGradient><filter id="glow"><feGaussianBlur stdDeviation="36"/></filter></defs>
-  <path fill="url(#bg)" d="M0 0h800v600H0z"/><circle cx="570" cy="180" r="130" fill="#c026d3" opacity=".3" filter="url(#glow)"/>
-  <g transform="rotate(-32 410 300)"><rect x="378" y="72" width="44" height="280" rx="10" fill="#d3a06f"/><rect x="389" y="72" width="22" height="280" fill="#251922"/><path d="M400 270c-25-45-75-29-73 13 2 28 23 42 20 67-4 35 20 59 53 59s57-24 53-59c-3-25 18-39 20-67 2-42-48-58-73-13" fill="url(#wood)" stroke="#ffe2b8" stroke-width="5"/><circle cx="400" cy="330" r="27" fill="#241923" stroke="#f4d4a2" stroke-width="5"/><path d="M400 76v309M388 280v70m8-70v70m8-70v70m8-70v70" stroke="#fff2d6" stroke-width="1.5"/><path d="M386 113h28m-28 34h28m-28 34h28m-28 34h28" stroke="#cda77b" stroke-width="3"/></g>
-  <text x="42" y="548" fill="#fff" opacity=".8" font-family="sans-serif" font-size="22" letter-spacing="5">ELECTRIC GUITAR</text>
-</svg>

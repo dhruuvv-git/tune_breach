@@ -4,19 +4,19 @@ import './AuthView.css';
 import { ArrowLeft, Sparkles, CheckCircle2 } from 'lucide-react';
 
 const CONVEYOR_ITEMS_LEFT = [
-  { id: 'c1', title: 'Vintage Stratocaster', img: '/images/electric-guitar.svg' },
-  { id: 'c2', title: 'Grand Concert Piano', img: '/images/piano.svg' },
-  { id: 'c3', title: 'Analog Synthesizer', img: '/images/synthesizer.svg' },
-  { id: 'c4', title: 'Custom Acoustic Wood', img: '/images/acoustic-guitar.svg' },
-  { id: 'c5', title: 'Harmonic Audio Mixing', img: '/images/mixer.svg' },
+  { id: 'c1', title: 'Vintage Stratocaster', img: '/images/photo-1511671782779-c97d3d27a1d4.jpg' },
+  { id: 'c2', title: 'Grand Concert Piano', img: '/images/photo-1520523839898-507125cd53c1.jpg' },
+  { id: 'c3', title: 'Analog Synthesizer', img: '/images/photo-1598488035139-bdbb2231ce04.jpg' },
+  { id: 'c4', title: 'Custom Acoustic Wood', img: '/images/photo-1525201548942-d8732f6617a0.jpg' },
+  { id: 'c5', title: 'Harmonic Audio Mixing', img: '/images/photo-1598653222000-6b7b7a552625.jpg' },
 ];
 
 const CONVEYOR_ITEMS_RIGHT = [
-  { id: 'c6', title: 'Studio Piano Keys', img: '/images/stage-keys.svg' },
-  { id: 'c7', title: 'Bass Fretboard Resonance', img: '/images/bass-fretboard.svg' },
-  { id: 'c8', title: 'Electric Archtop', img: '/images/electric-guitar.svg' },
-  { id: 'c9', title: 'Fretboard Inlays', img: '/images/guitar-neck.svg' },
-  { id: 'c10', title: 'Vocal Mic & Acoustics', img: '/images/microphone.svg' },
+  { id: 'c6', title: 'Studio Piano Keys', img: '/images/photo-1514525253161-7a46d19cd819.jpg' },
+  { id: 'c7', title: 'Bass Fretboard Resonance', img: '/images/photo-1465847899084-d164df4dedc6.jpg' },
+  { id: 'c8', title: 'Electric Archtop', img: '/images/photo-1550985616-10810253b84d.jpg' },
+  { id: 'c9', title: 'Fretboard Inlays', img: '/images/photo-1510915361894-db8b60106cb1.jpg' },
+  { id: 'c10', title: 'Vocal Mic & Acoustics', img: '/images/photo-1590602847861-f357a9332bbc.jpg' },
 ];
 
 export default function AuthView({ onAuthSuccess, onBackToLanding }) {
