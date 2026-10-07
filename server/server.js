@@ -5,6 +5,7 @@ import tuningsRouter from './routes/tunings.js';
 import chordsRouter from './routes/chords.js';
 import metronomeRouter from './routes/metronome.js';
 import waitlistRouter from './routes/waitlist.js';
+import imagesRouter from './routes/images.js';
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use('/api/tunings', tuningsRouter);
 app.use('/api/chords', chordsRouter);
 app.use('/api/metronome', metronomeRouter);
 app.use('/api/waitlist', waitlistRouter);
+app.use('/api/images', imagesRouter);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
