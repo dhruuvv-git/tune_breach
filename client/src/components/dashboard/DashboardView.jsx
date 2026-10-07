@@ -27,10 +27,22 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
   const [currentTab, setCurrentTab] = useState('overview');
 
   // --- Tuning State ---
-  const [tunings, setTunings] = useState([]);
-  const [selectedTuning, setSelectedTuning] = useState(null);
-  const [activeStringIndex, setActiveStringIndex] = useState(0);
-  const [simulatedPitchDeviation, setSimulatedPitchDeviation] = useState(0);
+  const [activeTuningPreset, setActiveTuningPreset] = useState('standard');
+  const [tunerActive, setTunerActive] = useState(false);
+  const [tunerStringIndex, setTunerStringIndex] = useState(0);
+  const [tunerCents, setTunerCents] = useState(0);
+  const [tunerDetectedNote, setTunerDetectedNote] = useState('—');
+  const [tunerDetectedFreq, setTunerDetectedFreq] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const [isHoldingPitch, setIsHoldingPitch] = useState(false);
+  const [micPermissionDenied, setMicPermissionDenied] = useState(false);
+  const tunerStreamRef = useRef(null);
+  const tunerAnalyserRef = useRef(null);
+  const tunerRafRef = useRef(null);
+  const tunerAudioCtxRef = useRef(null);
+  const tunerStringIndexRef = useRef(0);
+  const tunerPresetRef = useRef(null);
+  const lastUpdateRef = useRef(0);
 
   // --- Chords State ---
   const [chords, setChords] = useState([]);
@@ -75,16 +87,65 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
   const playTone = (freq) => {
     const ctx = getAudioContext();
     if (!ctx) return;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.8);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 1.8);
+    const sampleRate = ctx.sampleRate;
+    const duration = 2.8;
+    const bufferSize = Math.floor(sampleRate * duration);
+    const buffer = ctx.createBuffer(1, bufferSize, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    // Fractional-delay Karplus-Strong model keeps reference notes on pitch;
+    // rounding the delay to a whole sample can shift high strings by several cents.
+    const period = Math.max(10, sampleRate / freq);
+    const delayLength = Math.ceil(period) + 1;
+    const delayLine = new Float32Array(delayLength);
+
+    // Filtered noise burst for realistic pick attack (plectrum striking wound bronze string)
+    let lastNoise = 0;
+    for (let i = 0; i < delayLength; i++) {
+      const white = Math.random() * 2 - 1;
+      lastNoise = 0.5 * (lastNoise + white);
+      delayLine[i] = lastNoise;
+    }
+
+    // Interpolate within the feedback delay instead of using a rounded period.
+    const decayFactor = 0.99997;
+    for (let i = 0; i < bufferSize; i++) {
+      const writeIndex = i % delayLength;
+      let readPosition = writeIndex - period;
+      while (readPosition < 0) readPosition += delayLength;
+      const lowerIndex = Math.floor(readPosition);
+      const fraction = readPosition - lowerIndex;
+      const delayed = delayLine[lowerIndex] * (1 - fraction) + delayLine[(lowerIndex + 1) % delayLength] * fraction;
+      const sample = delayed * decayFactor;
+      data[i] = sample;
+      delayLine[writeIndex] = sample;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+
+    // Acoustic guitar wooden soundboard formant filter (~180 Hz body resonance)
+    const bodyFilter = ctx.createBiquadFilter();
+    bodyFilter.type = 'peaking';
+    bodyFilter.frequency.value = 180;
+    bodyFilter.Q.value = 1.2;
+    bodyFilter.gain.value = 4.0;
+
+    // High cut to keep acoustic string warmth
+    const toneFilter = ctx.createBiquadFilter();
+    toneFilter.type = 'lowpass';
+    toneFilter.frequency.value = 4200;
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.7, ctx.currentTime);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+
+    src.connect(bodyFilter);
+    bodyFilter.connect(toneFilter);
+    toneFilter.connect(masterGain);
+    masterGain.connect(ctx.destination);
+
+    src.start(ctx.currentTime);
   };
 
   // ── Acoustic Guitar synth ──────────────────────────────────────────────
@@ -277,18 +338,279 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
     osc.stop(ctx.currentTime + 0.05);
   };
 
+  // ── Tuning Presets ─────────────────────────────────────────────────────
+  const TUNING_PRESETS = {
+    standard:    { label: 'Standard (E)',      strings: [{ n:'E2',f:82.41},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'E4',f:329.63}] },
+    dropD:       { label: 'Drop D',            strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'E4',f:329.63}] },
+    halfDown:    { label: 'Half Step Down',    strings: [{ n:'Eb2',f:77.78},{ n:'Ab2',f:103.83},{ n:'Db3',f:138.59},{ n:'Gb3',f:185.00},{ n:'Bb3',f:233.08},{ n:'Eb4',f:311.13}] },
+    fullDown:    { label: 'Full Step Down',    strings: [{ n:'D2',f:73.42},{ n:'G2',f:98.00},{ n:'C3',f:130.81},{ n:'F3',f:174.61},{ n:'A3',f:220.00},{ n:'D4',f:293.66}] },
+    openG:       { label: 'Open G',            strings: [{ n:'D2',f:73.42},{ n:'G2',f:98.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'D4',f:293.66}] },
+    openD:       { label: 'Open D',            strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'F#3',f:185.00},{ n:'A3',f:220.00},{ n:'D4',f:293.66}] },
+    openE:       { label: 'Open E',            strings: [{ n:'E2',f:82.41},{ n:'B2',f:123.47},{ n:'E3',f:164.81},{ n:'G#3',f:207.65},{ n:'B3',f:246.94},{ n:'E4',f:329.63}] },
+    dadgad:      { label: 'DADGAD',            strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'A3',f:220.00},{ n:'D4',f:293.66}] },
+    doubleDropD: { label: 'Double Drop D',     strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'D4',f:293.66}] },
+  };
 
+  const currentPreset = TUNING_PRESETS[activeTuningPreset];
+
+  // ── High-Precision Pure YIN Pitch Detection Algorithm ────────────────
+  const detectPitch = (buf, sampleRate) => {
+    // 1. Calculate RMS with high sensitivity (detects soft finger plucks)
+    let sumSq = 0;
+    for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
+    const rms = Math.sqrt(sumSq / buf.length);
+    if (rms < 0.0008) return { freq: -1, rms };
+
+    // A longer difference window improves fundamental detection on the wound
+    // bass strings while the analyser keeps the same capture size and latency.
+    const W = 1024;
+    const minPeriod = Math.floor(sampleRate / 450);
+    const maxPeriod = Math.min(Math.floor(sampleRate / 65), buf.length - W - 1);
+
+    // Difference function d(tau) - computed from tau=1 so runningSum is mathematically exact
+    const d = new Float32Array(maxPeriod + 1);
+    for (let tau = 1; tau <= maxPeriod; tau++) {
+      let sum = 0;
+      for (let j = 0; j < W; j += 2) {
+        const delta = buf[j] - buf[j + tau];
+        sum += delta * delta;
+      }
+      d[tau] = sum * 2;
+    }
+
+    // Cumulative Mean Normalized Difference Function (CMNDF)
+    const cmndf = new Float32Array(maxPeriod + 1);
+    cmndf[0] = 1;
+    let runningSum = 0;
+    for (let tau = 1; tau <= maxPeriod; tau++) {
+      runningSum += d[tau];
+      cmndf[tau] = runningSum === 0 ? 1 : (d[tau] * tau) / runningSum;
+    }
+
+    // Absolute thresholding
+    // A stricter YIN threshold avoids locking onto a strong harmonic or transient.
+    const threshold = 0.12;
+    let tauEst = -1;
+    for (let tau = minPeriod; tau <= maxPeriod; tau++) {
+      if (cmndf[tau] < threshold) {
+        while (tau + 1 <= maxPeriod && cmndf[tau + 1] < cmndf[tau]) {
+          tau++;
+        }
+        tauEst = tau;
+        break;
+      }
+    }
+
+    if (tauEst === -1) {
+      let minVal = 1000;
+      for (let tau = minPeriod; tau <= maxPeriod; tau++) {
+        if (cmndf[tau] < minVal) {
+          minVal = cmndf[tau];
+          tauEst = tau;
+        }
+      }
+      if (minVal > 0.4) return { freq: -1, rms };
+    }
+
+    // Parabolic interpolation for sub-cent precision
+    let finalTau = tauEst;
+    if (tauEst > 1 && tauEst < maxPeriod) {
+      const s0 = cmndf[tauEst - 1];
+      const s1 = cmndf[tauEst];
+      const s2 = cmndf[tauEst + 1];
+      const denom = 2 * (2 * s1 - s2 - s0);
+      if (denom !== 0) {
+        const delta = (s2 - s0) / denom;
+        if (Math.abs(delta) < 1) finalTau += delta;
+      }
+    }
+
+    return { freq: sampleRate / finalTau, rms };
+  };
+
+  // Match the measured pitch against actual string targets. The selected string
+  // only breaks an exact tie; it must not relabel a different note as itself.
+  const matchGuitarString = (detectedFreq, currentPresetStrings, selectedIdx) => {
+    if (detectedFreq <= 0 || !currentPresetStrings) return null;
+    const selected = currentPresetStrings[selectedIdx];
+    if (selected) {
+      const candidates = [detectedFreq, detectedFreq / 2, detectedFreq * 2];
+      let selectedMatch = candidates[0];
+      let selectedCents = 1200 * Math.log2(selectedMatch / selected.f);
+      for (const candidate of candidates.slice(1)) {
+        const cents = 1200 * Math.log2(candidate / selected.f);
+        if (Math.abs(cents) < Math.abs(selectedCents)) {
+          selectedMatch = candidate;
+          selectedCents = cents;
+        }
+      }
+      // Accept a selected-string fundamental or its second harmonic only when
+      // the pitch is plausibly that string; otherwise identify the actual one.
+      if (Math.abs(selectedCents) <= 100) {
+        return {
+          strIdx: selectedIdx,
+          strName: selected.n,
+          targetFreq: selected.f,
+          cents: Math.max(-50, Math.min(50, Math.round(selectedCents))),
+          effFreq: selectedMatch
+        };
+      }
+    }
+
+    let best = null;
+    for (let i = 0; i < currentPresetStrings.length; i++) {
+      const target = currentPresetStrings[i];
+      const effFreq = detectedFreq;
+      const centsDiff = 1200 * Math.log2(effFreq / target.f);
+      const diff = Math.abs(centsDiff);
+      if (!best || diff < best.diff) {
+        best = { target, index: i, effFreq, centsDiff, diff };
+      }
+    }
+
+    if (!best) return null;
+    return {
+      strIdx: best.index,
+      strName: best.target.n,
+      targetFreq: best.target.f,
+      cents: Math.max(-50, Math.min(50, Math.round(best.centsDiff))),
+      effFreq: best.effFreq
+    };
+  };
+
+  const startTuner = async () => {
+    setMicPermissionDenied(false);
+    tunerPresetRef.current = TUNING_PRESETS[activeTuningPreset];
+    tunerStringIndexRef.current = tunerStringIndex;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          // Preserve the microphone's natural envelope; AGC pumping can make
+          // repeated pitch frames wander, especially on the G string.
+          autoGainControl: false,
+        },
+        video: false
+      });
+      tunerStreamRef.current = stream;
+
+      // DO NOT force sampleRate - use system native hardware rate (typically 48000Hz or 44100Hz)
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      tunerAudioCtxRef.current = ctx;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.0;
+      tunerAnalyserRef.current = analyser;
+
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const buf = new Float32Array(analyser.fftSize);
+      let pitchHistory = [];
+      let lastSelectedStringIndex = tunerStringIndexRef.current;
+      let lastActivePreset = tunerPresetRef.current;
+      let lastSoundTime = 0;
+      const HOLD_DURATION_MS = 3500; // Hold readings for 3.5s after sound ends
+      lastUpdateRef.current = 0;
+
+      const loop = () => {
+        tunerRafRef.current = requestAnimationFrame(loop);
+
+        // Throttle to 20 FPS (50ms) for silky 0-lag UI responsiveness
+        const now = performance.now();
+        if (now - lastUpdateRef.current < 50) return;
+        lastUpdateRef.current = now;
+
+        // A changed string or tuning preset starts a fresh pitch window. The
+        // previous reading can remain visible for its normal hold duration.
+        if (
+          lastSelectedStringIndex !== tunerStringIndexRef.current ||
+          lastActivePreset !== tunerPresetRef.current
+        ) {
+          pitchHistory = [];
+          lastSelectedStringIndex = tunerStringIndexRef.current;
+          lastActivePreset = tunerPresetRef.current;
+        }
+
+        analyser.getFloatTimeDomainData(buf);
+        const { freq: rawFreq, rms } = detectPitch(buf, ctx.sampleRate);
+
+        // Live mic volume (0-100%)
+        const liveVol = Math.min(100, Math.round(rms * 1500));
+        setMicLevel(liveVol);
+
+        if (rawFreq > 0) {
+          pitchHistory.push(rawFreq);
+          if (pitchHistory.length > 5) pitchHistory.shift();
+
+          const sorted = [...pitchHistory].sort((a, b) => a - b);
+          const stableFreq = sorted[Math.floor(sorted.length / 2)];
+
+          const match = matchGuitarString(stableFreq, lastActivePreset?.strings, tunerStringIndexRef.current);
+
+          if (match) {
+            lastSoundTime = now;
+            setTunerDetectedFreq(Math.round(match.effFreq * 10) / 10);
+            setTunerDetectedNote(match.strName);
+            setTunerCents(match.cents);
+            setIsHoldingPitch(false);
+          }
+        } else {
+          // If sound ceased, HOLD the last valid reading for 3.5 seconds!
+          if (lastSoundTime > 0 && now - lastSoundTime < HOLD_DURATION_MS) {
+            setIsHoldingPitch(true);
+          } else {
+            // Only clear after 3.5s of silence
+            pitchHistory = [];
+            setTunerDetectedNote('—');
+            setTunerDetectedFreq(0);
+            setTunerCents(0);
+            setIsHoldingPitch(false);
+          }
+        }
+      };
+
+      loop();
+      setTunerActive(true);
+    } catch (err) {
+      console.error('Mic error:', err);
+      setMicPermissionDenied(true);
+    }
+  };
+
+  const stopTuner = () => {
+    if (tunerRafRef.current) cancelAnimationFrame(tunerRafRef.current);
+    if (tunerStreamRef.current) tunerStreamRef.current.getTracks().forEach(t => t.stop());
+    if (tunerAudioCtxRef.current) tunerAudioCtxRef.current.close();
+    tunerRafRef.current = null;
+    tunerStreamRef.current = null;
+    tunerAudioCtxRef.current = null;
+    tunerAnalyserRef.current = null;
+    setTunerActive(false);
+    setTunerCents(0);
+    setTunerDetectedNote('—');
+    setTunerDetectedFreq(0);
+    setMicLevel(0);
+    setIsHoldingPitch(false);
+  };
+
+  // Keep refs in sync when state changes so the RAF loop always reads latest values
+  useEffect(() => { tunerStringIndexRef.current = tunerStringIndex; }, [tunerStringIndex]);
+  useEffect(() => { tunerPresetRef.current = TUNING_PRESETS[activeTuningPreset]; }, [activeTuningPreset]);
+
+  // Cleanup tuner on unmount
+  useEffect(() => () => stopTuner(), []);
+
+  // ── Fetch chords and metronome data ────────────────────────────────────
   // Fetch data
   useEffect(() => {
-    fetch('/api/tunings')
-      .then(res => res.json())
-      .then(data => {
-        if (data.tunings) {
-          setTunings(data.tunings);
-          setSelectedTuning(data.tunings[0]);
-        }
-      }).catch(console.error);
-
     fetch('/api/chords')
       .then(res => res.json())
       .then(data => {
@@ -660,123 +982,276 @@ export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
           </div>
         )}
 
-        {/* 2. TUNING TAB */}
-        {currentTab === 'tuning' && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold text-white">Guitar Multi-Tuning Engine</h3>
-                <p className="text-xs text-zinc-400">Select any guitar tuning preset and pluck strings for reference pitch.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {tunings.map(t => (
+        {/* 2. TUNING TAB — MINIMALISTIC ESCALATOR TUNER */}
+        {currentTab === 'tuning' && (() => {
+          const inTune = Math.abs(tunerCents) <= 3 && tunerDetectedNote !== '—';
+          const slightlyOff = Math.abs(tunerCents) > 3 && Math.abs(tunerCents) <= 15;
+          const cursorColor = inTune ? '#34d399' : slightlyOff ? '#fbbf24' : '#f43f5e';
+          
+          // Escalator vertical position:
+          // 0 cents = 50% (dead center)
+          // Negative cents (flat) -> moves DOWN (>50%)
+          // Positive cents (sharp) -> moves UP (<50%)
+          const escalatorTopPct = 50 - (tunerCents / 50) * 42;
+
+          return (
+            <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-300">
+              
+              {/* Top Controls: 6 Strings at Top-Left, Presets & Start at Top-Right */}
+              <div className="p-4 rounded-2xl bg-[#0d0814] border border-white/[0.08] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                
+                {/* 6 STRINGS ON TOP LEFT */}
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 block mb-2">
+                    SELECT STRING TO TUNE
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {currentPreset.strings.map((str, idx) => {
+                      const isActive = tunerStringIndex === idx;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => setTunerStringIndex(idx)}
+                          className={`flex items-baseline gap-1.5 px-3 py-2 rounded-xl text-xs font-mono transition-all ${
+                            isActive
+                              ? 'bg-[#e100ff] text-black font-bold shadow-[0_0_15px_rgba(225,0,255,0.4)] scale-105'
+                              : 'bg-white/5 border border-white/10 text-zinc-300 hover:bg-white/10'
+                          }`}
+                        >
+                          <span className="font-black text-sm">{str.n}</span>
+                          <span className={`text-[10px] ${isActive ? 'text-black/70 font-semibold' : 'text-zinc-500'}`}>
+                            {str.f.toFixed(0)}Hz
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* TUNING PRESET & START BUTTON */}
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <select
+                    value={activeTuningPreset}
+                    onChange={(e) => {
+                      setActiveTuningPreset(e.target.value);
+                      setTunerStringIndex(0);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-black/60 border border-white/10 text-xs font-mono text-zinc-200 outline-none hover:border-white/20 cursor-pointer"
+                  >
+                    {Object.entries(TUNING_PRESETS).map(([key, preset]) => (
+                      <option key={key} value={key} className="bg-[#0d0814] text-white">
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+
                   <button
-                    key={t.id}
-                    onClick={() => setSelectedTuning(t)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${
-                      selectedTuning?.id === t.id
-                        ? 'bg-aurora-neon text-black font-bold shadow-[0_0_12px_rgba(225,0,255,0.4)]'
-                        : 'bg-white/5 border border-white/10 text-zinc-300 hover:bg-white/10'
+                    onClick={() => playTone(currentPreset.strings[tunerStringIndex].f)}
+                    title="Pluck reference tone"
+                    className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white transition-colors"
+                  >
+                    <Volume2 className="w-4 h-4 text-[#a855f7]" />
+                  </button>
+
+                  <button
+                    onClick={tunerActive ? stopTuner : startTuner}
+                    className={`px-5 py-2.5 rounded-xl font-mono text-xs font-bold tracking-wider transition-all flex items-center gap-2 active:scale-95 ${
+                      tunerActive
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_15px_rgba(225,29,72,0.4)]'
+                        : 'bg-gradient-to-r from-[#590764] to-[#e100ff] hover:brightness-110 text-white shadow-[0_0_20px_rgba(225,0,255,0.4)]'
                     }`}
                   >
-                    {t.name}
+                    {tunerActive ? (
+                      <>
+                        <span className="w-2 h-2 rounded-sm bg-white" />
+                        <span>STOP</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                        <span>START TUNER</span>
+                      </>
+                    )}
                   </button>
-                ))}
+                </div>
               </div>
-            </div>
 
-            {selectedTuning && (
-              <div className="p-4 rounded-xl bg-white/[0.03] border border-white/10">
-                <span className="text-[10px] font-mono uppercase text-aurora-violet tracking-widest font-semibold">
-                  {selectedTuning.category} TUNING
-                </span>
-                <p className="text-xs text-zinc-300 mt-1">{selectedTuning.description}</p>
-              </div>
-            )}
+              {micPermissionDenied && (
+                <div className="flex items-center gap-2 text-rose-400 text-xs font-mono bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  Microphone blocked. Please allow mic permissions in your browser address bar and click Start Tuner.
+                </div>
+              )}
 
-            {/* Fretboard / String Visualizer */}
-            {selectedTuning && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                {selectedTuning.strings.map((str, idx) => {
-                  const isSelected = activeStringIndex === idx;
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() => {
-                        setActiveStringIndex(idx);
-                        playTone(str.freq);
-                      }}
-                      className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between relative group ${
-                        isSelected 
-                          ? 'bg-gradient-to-b from-[#590764]/50 to-transparent border-aurora-neon shadow-[0_0_20px_rgba(225,0,255,0.25)]' 
-                          : 'bg-white/[0.03] border-white/10 hover:border-white/20'
-                      }`}
-                    >
-                      <span className="text-[10px] font-mono text-zinc-500 mb-2">STRING {str.string}</span>
-                      <div className="w-12 h-12 rounded-full bg-black/60 border border-white/10 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                        <span className="text-xl font-bold font-mono text-white">{str.note}</span>
+              {/* ── THE MINIMALISTIC ESCALATOR TUNER ── */}
+              <div className="p-6 md:p-8 rounded-3xl bg-[#0a0610] border border-white/[0.08] shadow-2xl">
+                
+                <div className="flex flex-col md:flex-row items-center justify-around gap-8">
+                  
+                  {/* LEFT: THE STRAIGHT LINE ESCALATOR RAIL */}
+                  <div className="flex flex-col items-center">
+                    
+                    <span className="text-[10px] font-mono font-bold tracking-wider text-rose-400 mb-2">
+                      ▲ SHARP (TOO HIGH)
+                    </span>
+
+                    {/* STRAIGHT VERTICAL RAIL (Height: 340px) */}
+                    <div className="relative w-44 h-[340px] rounded-2xl bg-[#060408] border border-white/10 flex justify-center overflow-hidden">
+                      
+                      {/* Straight vertical guide rail */}
+                      <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-1.5 bg-zinc-900 border-x border-white/10">
+                        <div className="w-0.5 h-full mx-auto bg-gradient-to-b from-rose-500/40 via-emerald-400/80 to-purple-500/40" />
                       </div>
-                      <span className="text-xs font-mono text-aurora-violet font-semibold">{str.freq.toFixed(1)} Hz</span>
-                      <button className="mt-3 px-2.5 py-1 rounded bg-white/10 text-[10px] font-mono text-zinc-300 group-hover:bg-aurora-neon group-hover:text-black transition-colors flex items-center gap-1">
-                        <Volume2 className="w-3 h-3" />
-                        <span>Pluck</span>
-                      </button>
+
+                      {/* Tick Marks on Escalator Rail */}
+                      {[
+                        { cents: 40, label: '+40¢' },
+                        { cents: 20, label: '+20¢' },
+                        { cents: 0,  label: '0¢' },
+                        { cents: -20, label: '-20¢' },
+                        { cents: -40, label: '-40¢' },
+                      ].map((rung) => {
+                        const topPos = 50 - (rung.cents / 50) * 42;
+                        const isCenter = rung.cents === 0;
+
+                        return (
+                          <div
+                            key={rung.cents}
+                            className="absolute left-0 right-0 flex items-center justify-between px-3 pointer-events-none"
+                            style={{ top: `${topPos}%`, transform: 'translateY(-50%)' }}
+                          >
+                            <span className={`text-[9px] font-mono ${isCenter ? 'text-emerald-400 font-bold' : 'text-zinc-600'}`}>
+                              {rung.label}
+                            </span>
+                            <div className={`h-px ${isCenter ? 'w-10 bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'w-4 bg-white/20'}`} />
+                            <span className={`text-[9px] font-mono ${isCenter ? 'text-emerald-400 font-bold' : 'text-zinc-600'}`}>
+                              {isCenter ? 'LOCK' : ''}
+                            </span>
+                          </div>
+                        );
+                      })}
+
+                      {/* Moving Cursor on the Straight Line */}
+                      {tunerActive && tunerDetectedNote !== '—' ? (
+                        <div
+                          className="absolute left-2 right-2 flex items-center justify-between px-3 py-1.5 rounded-lg border backdrop-blur-md shadow-xl transition-all duration-75 pointer-events-none z-10"
+                          style={{
+                            top: `${escalatorTopPct}%`,
+                            transform: 'translateY(-50%)',
+                            backgroundColor: inTune ? 'rgba(6, 78, 59, 0.9)' : 'rgba(20, 10, 30, 0.95)',
+                            borderColor: cursorColor,
+                            boxShadow: `0 0 16px ${cursorColor}88`
+                          }}
+                        >
+                          <span className="text-xs font-black" style={{ color: cursorColor }}>
+                            {inTune ? '◆' : tunerCents < 0 ? '▲' : '▼'}
+                          </span>
+                          <span className="text-xs font-mono font-bold text-white">
+                            {inTune ? '0¢' : `${tunerCents > 0 ? '+' : ''}${tunerCents}¢`}
+                          </span>
+                          <span className="text-[10px] font-mono uppercase font-bold" style={{ color: cursorColor }}>
+                            {inTune ? 'LOCKED' : tunerCents < 0 ? 'UP' : 'DOWN'}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-[10px] font-mono text-zinc-600 tracking-wider text-center px-4">
+                            {tunerActive ? 'PLUCK STRING...' : 'TUNER OFF'}
+                          </span>
+                        </div>
+                      )}
+
                     </div>
-                  );
-                })}
-              </div>
-            )}
 
-            {/* Pitch Deviation Meter Simulation */}
-            <div className="p-5 rounded-2xl bg-black/50 border border-white/10">
-              <div className="flex items-center justify-between mb-3 text-xs font-mono">
-                <span className="text-zinc-400">PITCH CENT DETECTOR (FFT HARMONIC LOCK)</span>
-                <span className={`font-bold ${
-                  Math.abs(simulatedPitchDeviation) <= 3 ? 'text-emerald-400' : 'text-amber-400'
-                }`}>
-                  {Math.abs(simulatedPitchDeviation) <= 3 
-                    ? 'IN TUNE (±0 Cents)' 
-                    : `${simulatedPitchDeviation > 0 ? '+' : ''}${simulatedPitchDeviation} Cents`}
-                </span>
-              </div>
-              
-              <div className="relative h-4 bg-zinc-900 rounded-full overflow-hidden border border-white/10">
-                <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-emerald-400 -translate-x-1/2 z-10 shadow-[0_0_8px_#34d399]" />
-                <div 
-                  className="absolute top-0 bottom-0 w-3 rounded-full bg-aurora-neon transition-all duration-150"
-                  style={{
-                    left: `calc(50% + ${simulatedPitchDeviation * 0.9}%)`,
-                    transform: 'translateX(-50%)'
-                  }}
-                />
+                    <span className="text-[10px] font-mono font-bold tracking-wider text-purple-400 mt-2">
+                      ▼ FLAT (TOO LOW)
+                    </span>
+
+                  </div>
+
+                  {/* RIGHT: MINIMALIST DIGITAL READOUT */}
+                  <div className="flex flex-col items-center md:items-start space-y-4">
+                    
+                    {/* Big Note Badge */}
+                    <div className="flex items-baseline gap-4">
+                      <span
+                        className="text-7xl font-black font-mono tracking-tight transition-colors"
+                        style={{ color: tunerActive && tunerDetectedNote !== '—' ? cursorColor : '#3f3f46' }}
+                      >
+                        {tunerDetectedNote !== '—' ? tunerDetectedNote : currentPreset.strings[tunerStringIndex].n}
+                      </span>
+
+                      <div className="flex flex-col">
+                        <span className="text-xs font-mono text-zinc-500">TARGET</span>
+                        <span className="text-lg font-bold font-mono text-white">
+                          {currentPreset.strings[tunerStringIndex].n} ({currentPreset.strings[tunerStringIndex].f.toFixed(1)} Hz)
+                        </span>
+                        <span className="text-xs font-mono text-zinc-400 mt-0.5">
+                          Detected: {tunerDetectedFreq > 0 ? `${tunerDetectedFreq.toFixed(1)} Hz` : '— Hz'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Status Pill */}
+                    <div
+                      className="px-4 py-2 rounded-xl border flex items-center gap-2.5 font-mono text-xs font-bold"
+                      style={{
+                        backgroundColor: inTune ? 'rgba(52, 211, 153, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                        borderColor: tunerActive && tunerDetectedNote !== '—' ? cursorColor : 'rgba(255, 255, 255, 0.1)',
+                        color: tunerActive && tunerDetectedNote !== '—' ? cursorColor : '#71717a'
+                      }}
+                    >
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full ${isHoldingPitch ? 'opacity-80' : 'animate-pulse'}`}
+                        style={{ backgroundColor: cursorColor, boxShadow: `0 0 8px ${cursorColor}` }}
+                      />
+                      <span>
+                        {!tunerActive
+                          ? 'CLICK START TUNER'
+                          : tunerDetectedNote === '—'
+                            ? 'WAITING FOR SOUND...'
+                            : inTune
+                              ? `PERFECT RESONANCE — IN TUNE ✓ ${isHoldingPitch ? '• [HELD]' : ''}`
+                              : tunerCents < 0
+                                ? `TUNE UP: TIGHTEN PEG (+${Math.abs(tunerCents)}¢) ${isHoldingPitch ? '• [HELD]' : ''}`
+                                : `TUNE DOWN: LOOSEN PEG (-${tunerCents}¢) ${isHoldingPitch ? '• [HELD]' : ''}`}
+                      </span>
+                    </div>
+
+                    {/* Live Microphone Input Sensitivity Meter (Verifies Sound Input) */}
+                    <div className="w-full pt-2 border-t border-white/[0.08] space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] font-mono">
+                        <span className="text-zinc-500 flex items-center gap-1.5">
+                          <Activity className={`w-3 h-3 ${micLevel > 1 ? 'text-emerald-400 animate-pulse' : 'text-zinc-600'}`} />
+                          MIC INPUT LEVEL
+                        </span>
+                        <span className={micLevel > 1 ? 'text-emerald-400 font-bold' : 'text-zinc-600'}>
+                          {tunerActive ? (micLevel > 1 ? `${micLevel}% (ACTIVE)` : '0% (QUIET)') : 'STANDBY'}
+                        </span>
+                      </div>
+
+                      {/* Real-time VU sensitivity bar */}
+                      <div className="h-1.5 w-full bg-zinc-900 rounded-full overflow-hidden border border-white/10">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-500 via-[#e100ff] to-rose-500 transition-all duration-75"
+                          style={{ width: `${tunerActive ? micLevel : 0}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] font-mono text-zinc-500 block">
+                        Sensitive to faint acoustic plucks. Watch the meter react when you play or speak.
+                      </span>
+                    </div>
+
+                  </div>
+
+                </div>
+
               </div>
 
-              <div className="flex justify-between text-[10px] font-mono text-zinc-500 mt-2">
-                <span>-50 Cents (Flat)</span>
-                <span className="text-emerald-400 font-semibold">0 Cents (Center Lock)</span>
-                <span>+50 Cents (Sharp)</span>
-              </div>
-
-              <div className="mt-4 flex items-center gap-3">
-                <span className="text-xs text-zinc-400 font-mono">Simulate Detuning:</span>
-                <input
-                  type="range"
-                  min="-30"
-                  max="30"
-                  value={simulatedPitchDeviation}
-                  onChange={(e) => setSimulatedPitchDeviation(parseInt(e.target.value))}
-                  className="flex-1 accent-purple-500 cursor-pointer"
-                />
-                <button 
-                  onClick={() => setSimulatedPitchDeviation(0)}
-                  className="px-2.5 py-1 text-[11px] font-mono rounded bg-white/10 hover:bg-white/20 text-zinc-300"
-                >
-                  Reset Center
-                </button>
-              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
+
 
         {/* 3. METRONOME TAB */}
         {currentTab === 'metronome' && (
