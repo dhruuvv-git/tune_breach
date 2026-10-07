@@ -11,7 +11,7 @@ import DashboardView from './components/dashboard/DashboardView';
 export default function App() {
   const [currentView, setCurrentView] = useState('landing'); // 'landing' | 'auth' | 'dashboard'
   const [isDissolving, setIsDissolving] = useState(false);
-  const [currentUser, setCurrentUser] = useState({ name: 'Dhruv', email: 'dhruv@tunebreach.io' });
+  const [currentUser, setCurrentUser] = useState({ name: '', email: '' });
 
   // Landing page level state
   const [activeLevel, setActiveLevel] = useState('level-1');

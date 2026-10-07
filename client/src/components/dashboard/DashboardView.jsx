@@ -23,7 +23,7 @@ import {
   Award
 } from 'lucide-react';
 
-export default function DashboardView({ user = { name: 'Dhruv' }, onLogout }) {
+export default function DashboardView({ user = { name: 'User' }, onLogout }) {
   const [currentTab, setCurrentTab] = useState('overview');
 
   // --- Tuning State ---
