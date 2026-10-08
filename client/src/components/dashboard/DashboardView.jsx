@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChordDiagram, { CHORD_DIAGRAMS } from '../ChordDiagram';
+import { TUNING_PRESETS, detectPitch, matchGuitarString } from './tuner';
 import { 
   Flame, 
   TrendingUp, 
@@ -28,6 +29,7 @@ export default function DashboardView({ user = { name: 'User' }, onLogout }) {
 
   // --- Tuning State ---
   const [activeTuningPreset, setActiveTuningPreset] = useState('standard');
+  const currentPreset = TUNING_PRESETS[activeTuningPreset];
   const [tunerActive, setTunerActive] = useState(false);
   const [tunerStringIndex, setTunerStringIndex] = useState(0);
   const [tunerCents, setTunerCents] = useState(0);
@@ -338,146 +340,6 @@ export default function DashboardView({ user = { name: 'User' }, onLogout }) {
     osc.stop(ctx.currentTime + 0.05);
   };
 
-  // ── Tuning Presets ─────────────────────────────────────────────────────
-  const TUNING_PRESETS = {
-    standard:    { label: 'Standard (E)',      strings: [{ n:'E2',f:82.41},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'E4',f:329.63}] },
-    dropD:       { label: 'Drop D',            strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'E4',f:329.63}] },
-    halfDown:    { label: 'Half Step Down',    strings: [{ n:'Eb2',f:77.78},{ n:'Ab2',f:103.83},{ n:'Db3',f:138.59},{ n:'Gb3',f:185.00},{ n:'Bb3',f:233.08},{ n:'Eb4',f:311.13}] },
-    fullDown:    { label: 'Full Step Down',    strings: [{ n:'D2',f:73.42},{ n:'G2',f:98.00},{ n:'C3',f:130.81},{ n:'F3',f:174.61},{ n:'A3',f:220.00},{ n:'D4',f:293.66}] },
-    openG:       { label: 'Open G',            strings: [{ n:'D2',f:73.42},{ n:'G2',f:98.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'D4',f:293.66}] },
-    openD:       { label: 'Open D',            strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'F#3',f:185.00},{ n:'A3',f:220.00},{ n:'D4',f:293.66}] },
-    openE:       { label: 'Open E',            strings: [{ n:'E2',f:82.41},{ n:'B2',f:123.47},{ n:'E3',f:164.81},{ n:'G#3',f:207.65},{ n:'B3',f:246.94},{ n:'E4',f:329.63}] },
-    dadgad:      { label: 'DADGAD',            strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'A3',f:220.00},{ n:'D4',f:293.66}] },
-    doubleDropD: { label: 'Double Drop D',     strings: [{ n:'D2',f:73.42},{ n:'A2',f:110.00},{ n:'D3',f:146.83},{ n:'G3',f:196.00},{ n:'B3',f:246.94},{ n:'D4',f:293.66}] },
-  };
-
-  const currentPreset = TUNING_PRESETS[activeTuningPreset];
-
-  // ── High-Precision Pure YIN Pitch Detection Algorithm ────────────────
-  const detectPitch = (buf, sampleRate) => {
-    // 1. Calculate RMS with high sensitivity (detects soft finger plucks)
-    let sumSq = 0;
-    for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
-    const rms = Math.sqrt(sumSq / buf.length);
-    if (rms < 0.0008) return { freq: -1, rms };
-
-    // A longer difference window improves fundamental detection on the wound
-    // bass strings while the analyser keeps the same capture size and latency.
-    const W = 1024;
-    const minPeriod = Math.floor(sampleRate / 450);
-    const maxPeriod = Math.min(Math.floor(sampleRate / 65), buf.length - W - 1);
-
-    // Difference function d(tau) - computed from tau=1 so runningSum is mathematically exact
-    const d = new Float32Array(maxPeriod + 1);
-    for (let tau = 1; tau <= maxPeriod; tau++) {
-      let sum = 0;
-      for (let j = 0; j < W; j += 2) {
-        const delta = buf[j] - buf[j + tau];
-        sum += delta * delta;
-      }
-      d[tau] = sum * 2;
-    }
-
-    // Cumulative Mean Normalized Difference Function (CMNDF)
-    const cmndf = new Float32Array(maxPeriod + 1);
-    cmndf[0] = 1;
-    let runningSum = 0;
-    for (let tau = 1; tau <= maxPeriod; tau++) {
-      runningSum += d[tau];
-      cmndf[tau] = runningSum === 0 ? 1 : (d[tau] * tau) / runningSum;
-    }
-
-    // Absolute thresholding
-    // A stricter YIN threshold avoids locking onto a strong harmonic or transient.
-    const threshold = 0.12;
-    let tauEst = -1;
-    for (let tau = minPeriod; tau <= maxPeriod; tau++) {
-      if (cmndf[tau] < threshold) {
-        while (tau + 1 <= maxPeriod && cmndf[tau + 1] < cmndf[tau]) {
-          tau++;
-        }
-        tauEst = tau;
-        break;
-      }
-    }
-
-    if (tauEst === -1) {
-      let minVal = 1000;
-      for (let tau = minPeriod; tau <= maxPeriod; tau++) {
-        if (cmndf[tau] < minVal) {
-          minVal = cmndf[tau];
-          tauEst = tau;
-        }
-      }
-      if (minVal > 0.4) return { freq: -1, rms };
-    }
-
-    // Parabolic interpolation for sub-cent precision
-    let finalTau = tauEst;
-    if (tauEst > 1 && tauEst < maxPeriod) {
-      const s0 = cmndf[tauEst - 1];
-      const s1 = cmndf[tauEst];
-      const s2 = cmndf[tauEst + 1];
-      const denom = 2 * (2 * s1 - s2 - s0);
-      if (denom !== 0) {
-        const delta = (s2 - s0) / denom;
-        if (Math.abs(delta) < 1) finalTau += delta;
-      }
-    }
-
-    return { freq: sampleRate / finalTau, rms };
-  };
-
-  // Match the measured pitch against actual string targets. The selected string
-  // only breaks an exact tie; it must not relabel a different note as itself.
-  const matchGuitarString = (detectedFreq, currentPresetStrings, selectedIdx) => {
-    if (detectedFreq <= 0 || !currentPresetStrings) return null;
-    const selected = currentPresetStrings[selectedIdx];
-    if (selected) {
-      const candidates = [detectedFreq, detectedFreq / 2, detectedFreq * 2];
-      let selectedMatch = candidates[0];
-      let selectedCents = 1200 * Math.log2(selectedMatch / selected.f);
-      for (const candidate of candidates.slice(1)) {
-        const cents = 1200 * Math.log2(candidate / selected.f);
-        if (Math.abs(cents) < Math.abs(selectedCents)) {
-          selectedMatch = candidate;
-          selectedCents = cents;
-        }
-      }
-      // Accept a selected-string fundamental or its second harmonic only when
-      // the pitch is plausibly that string; otherwise identify the actual one.
-      if (Math.abs(selectedCents) <= 100) {
-        return {
-          strIdx: selectedIdx,
-          strName: selected.n,
-          targetFreq: selected.f,
-          cents: Math.max(-50, Math.min(50, Math.round(selectedCents))),
-          effFreq: selectedMatch
-        };
-      }
-    }
-
-    let best = null;
-    for (let i = 0; i < currentPresetStrings.length; i++) {
-      const target = currentPresetStrings[i];
-      const effFreq = detectedFreq;
-      const centsDiff = 1200 * Math.log2(effFreq / target.f);
-      const diff = Math.abs(centsDiff);
-      if (!best || diff < best.diff) {
-        best = { target, index: i, effFreq, centsDiff, diff };
-      }
-    }
-
-    if (!best) return null;
-    return {
-      strIdx: best.index,
-      strName: best.target.n,
-      targetFreq: best.target.f,
-      cents: Math.max(-50, Math.min(50, Math.round(best.centsDiff))),
-      effFreq: best.effFreq
-    };
-  };
-
   const startTuner = async () => {
     setMicPermissionDenied(false);
     tunerPresetRef.current = TUNING_PRESETS[activeTuningPreset];
@@ -505,7 +367,9 @@ export default function DashboardView({ user = { name: 'User' }, onLogout }) {
       tunerAudioCtxRef.current = ctx;
 
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
+      // 4096 samples give the low E and D strings several full cycles for YIN
+      // to compare, while the existing 50 ms UI update cadence stays intact.
+      analyser.fftSize = 4096;
       analyser.smoothingTimeConstant = 0.0;
       tunerAnalyserRef.current = analyser;
 
