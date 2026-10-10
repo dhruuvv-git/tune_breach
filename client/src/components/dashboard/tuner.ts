@@ -81,7 +81,9 @@ export function detectPitch(buffer: Float32Array, sampleRate: number): PitchEsti
 
   const minPeriod = Math.max(2, Math.floor(sampleRate / MAX_PITCH_HZ));
   const requestedMaxPeriod = Math.ceil(sampleRate / MIN_PITCH_HZ);
-  const windowSize = Math.min(2048, buffer.length - requestedMaxPeriod - 1);
+  // A longer comparison window is especially useful for the low E string:
+  // it includes several cycles even when its fundamental is weak.
+  const windowSize = Math.min(3072, buffer.length - requestedMaxPeriod - 1);
   const maxPeriod = Math.min(requestedMaxPeriod, buffer.length - windowSize - 1);
   if (windowSize < 256 || maxPeriod <= minPeriod) return { freq: -1, rms };
 
@@ -183,9 +185,12 @@ export function matchGuitarString(
 
   const selected = strings[selectedIndex];
   if (selected) {
-    // A strong second harmonic can dominate the fundamental. Correct only an
-    // octave error; the 100-cent guard prevents relabeling adjacent strings.
-    const octaveCandidates = [detectedFrequency, detectedFrequency / 2, detectedFrequency * 2];
+    // A strong second harmonic can dominate the fundamental. E2 can also lock
+    // to its third partial, so only that selected string checks a third-harmonic
+    // candidate. The 100-cent guard prevents relabeling unrelated notes.
+    const octaveCandidates = selected.n === 'E2'
+      ? [detectedFrequency, detectedFrequency / 2, detectedFrequency / 3, detectedFrequency * 2]
+      : [detectedFrequency, detectedFrequency / 2, detectedFrequency * 2];
     let closestFrequency = detectedFrequency;
     let closestCents = centsBetween(detectedFrequency, selected.f);
     for (const candidate of octaveCandidates.slice(1)) {
